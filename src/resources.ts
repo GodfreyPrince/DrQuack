@@ -1,5 +1,7 @@
+import { ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import type { AgentEngine } from "./agent/agent.js";
 import { DISCLAIMER } from "./core/disclaimer.js";
 
 /**
@@ -40,6 +42,48 @@ care team - DrQuack does not store any of it.
 - End every interaction with the disclaimer.
 
 ${DISCLAIMER}`;
+
+/**
+ * Live session resource: any MCP client can read the evolving patient
+ * model for a session without advancing the interview.
+ */
+export function registerSessionResource(server: McpServer, engine: AgentEngine): void {
+  server.registerResource(
+    "session-state",
+    new ResourceTemplate("drquack://session/{sessionId}", { list: undefined }),
+    {
+      title: "Session state",
+      description: "Evolving patient model for an agent session.",
+      mimeType: "text/plain",
+    },
+    async (_uri, variables) => {
+      const sessionId = String(variables.sessionId ?? "");
+      const state = await engine.readSession(sessionId);
+      if ("error" in state) {
+        throw new Error(state.error);
+      }
+      const m = state.modelSummary;
+      return {
+        contents: [
+          {
+            uri: `drquack://session/${sessionId}`,
+            mimeType: "text/plain",
+            text: [
+              `Session: ${state.sessionId}`,
+              `Stage: ${state.stage}`,
+              `Severity: ${state.severity}`,
+              `Chief complaint: ${m.chiefComplaint ?? "not yet established"}`,
+              `Age: ${m.age ?? "unknown"}`,
+              `Conditions: ${m.conditions.join(", ") || "none"}`,
+              `Medications: ${m.medications.join(", ") || "none"}`,
+              `Allergies: ${m.allergies.join(", ") || "none"}`,
+            ].join("\n"),
+          },
+        ],
+      };
+    },
+  );
+}
 
 export function registerPatientContext(server: McpServer): void {
   server.registerResource(
